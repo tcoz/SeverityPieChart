@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+
+    <head>
+        <title>VMTurbo Entity Graph</title>
+
+        <link rel="stylesheet" href="css/main.css">
+        <link type="text/css" rel="Stylesheet" href="js/libs/blackbirdjs/blackbird.css" />
+        <script type="text/javascript" src="js/libs/blackbirdjs/blackbird.js"></script>
+        <script src="js/libs/jquery-1.8.3.min.js"></script>
+        <script type="text/javascript" src="js/libs/tcoz/jsbase/jsbase.js"></script>
+        <script type="text/javascript" src="js/libs/tcoz/jsbase/singletons_jsbase.js"></script>
+        <script type="text/javascript" src="js/libs/tcoz/jsbase/commands_jsbase.js"></script>
+        <script type="text/javascript" src="js/libs/tcoz/jsbase/utils_jsbase.js"></script>
+        <script type="text/javascript" src="http://code.highcharts.com/highcharts.js"></script>
+    </head>
+
+    <body>
+
+        <script type="text/javascript">
+
+            // tcoz Framework namespace, only used by the utils and parser scripts in simple version.
+            // don't delete or change this or the tcoz and parser scripts won't work.
+            tcoz = { },
+            that = this;
+
+            // Alter these for your needs, watch the formatting, like trailing slashes and such.
+            var applianceAddress = 'http://administrator:administrator@localhost:8400/vmturbo/api/';
+            var notificationsURL = applianceAddress + 'notifications?category=MarketProblem';
+            var groupsURL = applianceAddress + 'groups/GROUP-PhysicalMachine/entities';
+
+            // When the document loads, this will run.
+            jQuery ( document ).ready ( function ( ) {
+                startApp ( );
+            } );
+
+            var _ajaxCallCommand = ( tcoz.ajaxCallCommand = baseCommand ( ) );
+            function startApp ( ) {
+
+                _ajaxCallCommand.dispatchCommandNotification ( 'AJAX_CALL',
+                        { 'destination' : notificationsURL, 'callback' : onStartupCallsReturn }
+                );
+                _ajaxCallCommand.dispatchCommandNotification ( 'AJAX_CALL',
+                        { 'destination' : groupsURL, 'callback' : onStartupCallsReturn }
+                );
+            }
+
+            var _groupAndNotificationLib = { 'groups' : { }, 'notifications' : { } };
+            var _startupCounter = 0;
+            function onStartupCallsReturn ( dataObj ) {
+
+                var xmlDoc, groups, notifications;
+
+                try { xmlDoc = jQuery.parseXML ( dataObj.ajaxReturn ); }
+                catch ( err ) { xmlDoc = jQuery.parseXML ( '<root />' ); }
+
+                groups = jQuery ( xmlDoc ).find ( 'TopologyElement');
+                notifications = jQuery ( xmlDoc ).find ( 'Notification');
+
+                if ( groups.length > 0 )
+                    _groupAndNotificationLib.groups = groups;
+                else if ( notifications.length > 0 )
+                    _groupAndNotificationLib.notifications = notifications;
+
+                _startupCounter += 1;
+
+                if ( _startupCounter === 2 )
+                    getEntities ( );
+            }
+
+            var _entitiesArr = [ ];
+            function getEntities ( ) {
+                var i = 0,
+                    groups = _groupAndNotificationLib.groups;
+
+                for ( i = 0; i < groups.length; i += 1 ) {
+
+                    var creationClass = jQuery ( groups [ i ] ).attr ( 'creationClassName' );
+
+                    if ( creationClass === 'Group' ) {
+
+                        var uuid = jQuery ( groups [ i ] ).attr ( 'uuid' );
+                        var getEntitiesForGroupURL = applianceAddress + 'groups/' + uuid + '/entities';
+
+                        _ajaxCallCommand.dispatchCommandNotification ( 'AJAX_CALL',
+                                { 'destination' : getEntitiesForGroupURL, 'callback' : onGroupEntityCallsReturn }
+                        );
+                    }
+                }
+            }
+
+            var entityCallCounter = 0;
+            function onGroupEntityCallsReturn ( dataObj ) {
+                var i = 0,
+                    validGroupCount = 0,
+                    groups = _groupAndNotificationLib.groups;
+
+                var xmlDoc = jQuery.parseXML ( dataObj.ajaxReturn );
+                var entities = jQuery ( xmlDoc ).find ( 'TopologyElement');
+
+                for ( i = 0; i < groups.length; i += 1 ) {
+                    var creationClassName = jQuery ( groups [ i ] ).attr ( 'creationClassName' );
+                    if ( creationClassName === 'Group' ) {
+                        validGroupCount += 1;
+                    }
+                }
+
+                for ( i = 0; i < entities.length; i += 1 ) {
+                    _entitiesArr.push ( jQuery ( entities [ i ] ).attr ( 'displayName' ) );
+                }
+
+                entityCallCounter += 1;
+
+                if ( entityCallCounter === validGroupCount ) {
+                    intersectData ( );
+                }
+            }
+
+            function intersectData ( ) {
+
+                var i = 0, j = 0,
+                    intersectedData = [ ],
+                    notifications = _groupAndNotificationLib.notifications;
+
+                for ( i = 0; i < notifications.length; i += 1 ) {
+
+                    var notificationHost = jQuery ( notifications [ i ] ).attr ( 'notificationObjectDisplayName' );
+                    for ( j = 0; j < _entitiesArr.length; j += 1 ) {
+
+                        if ( _entitiesArr [ j ] === notificationHost ) {
+                            var severity = jQuery ( notifications [ i ] ).attr ( 'severity' );
+                            intersectedData.push ( { 'host' : notificationHost, 'severity' : severity } );
+                        }
+                    }
+                }
+
+                intersectedData.sortOn ( 'host' );
+                chartTheData ( intersectedData );
+            }
+
+            function chartTheData ( intersectedData ) {
+
+                var i = 0, j = 0,
+                    severities = [ 'minor', 'major', 'critical' ],
+                    severityCounts = [ 0, 0, 0 ],
+                    totalNotNormalSeverities = 0,
+                    normalSeverities = 0,
+                    notifications = _groupAndNotificationLib.notifications,
+                    totalEntities = _entitiesArr.length,
+                    seriesData = [ { 'type': 'pie', 'name': 'Percent', 'data': [ ] } ];
+
+                if ( notifications.length === 0 ) {
+                    seriesData [ 0 ].data.push [ 'Normal',   100.0 ];
+                }
+                else {
+
+                    for ( i = 0; i < severities.length; i += 1 ) {
+
+                        for ( j = 0; j < intersectedData.length; j += 1 ) {
+
+                            if ( severities [ i ].toLowerCase ( ) === intersectedData [ j ].severity.toLowerCase ( ) ) {
+                                severityCounts [ i ] = severityCounts [ i ] += 1;
+                            }
+                        }
+                    }
+
+                    totalNotNormalSeverities = severityCounts [ 0 ] + severityCounts [ 1 ] + severityCounts [ 2 ];
+                    normalSeverities = totalEntities - totalNotNormalSeverities;
+                    seriesData [ 0 ].data.push ( [ 'Normal', ( normalSeverities / totalEntities ) ] );
+
+                    if ( severityCounts [ 0 ] > 0 ) {
+                        seriesData [ 0 ].data.push ( [ 'Minor', ( severityCounts [ 0 ] / totalEntities ) ] );
+                    }
+                    if ( severityCounts [ 1 ] > 0 ) {
+                        seriesData [ 0 ].data.push ( [ 'Major', ( severityCounts [ 1 ] / totalEntities ) ] );
+                    }
+                    if ( severityCounts [ 2 ] > 0 ) {
+                        seriesData [ 0 ].data.push ( [ 'Critical', ( severityCounts [ 2 ] / totalEntities ) ] );
+                    }
+                }
+
+                var chart1 = new Highcharts.Chart ( {
+                    chart: {
+                        renderTo: 'chartContainer',
+                        plotBackgroundColor: null,
+                        plotBorderWidth: null,
+                        plotShadow: false
+                    },
+                    credits: {
+                        enabled: false
+                    },
+                    title: {
+                        text: 'Health'
+                    },
+                    tooltip: {
+                        pointFormat: '{series.name}: <b>{point.percentage}%</b>',
+                        percentageDecimals: 1
+                    },
+                    series: seriesData,
+                    colors: [ '#228B22', '#EEE9BF', '#FFA500', 'EE0000' ]
+                } );
+            }
+
+        </script>
+
+    </body>
+
+        <div id="chartContainer" />
+
+</html>

@@ -26,7 +26,7 @@
             that = this;
 
             // Alter these for your needs, watch the formatting, like trailing slashes and such.
-            var applianceAddress = 'http://administrator:administrator@localhost:8400/vmturbo/api/';
+            var applianceAddress = 'http://localhost:8400/vmturbo/api/';
             var notificationsURL = applianceAddress + 'notifications?category=MarketProblem';
             var hostsURL = applianceAddress + 'markets/Market/hosts';
 
@@ -39,10 +39,10 @@
             function startApp ( ) {
 
                 _ajaxCallCommand.dispatchCommandNotification ( 'AJAX_CALL',
-                        { 'destination' : notificationsURL, 'callback' : onStartupCallsReturn }
+                        { 'data' : { 'username' : 'administrator', 'password' : 'administrator' }, 'destination' : notificationsURL, 'callback' : onStartupCallsReturn }
                 );
                 _ajaxCallCommand.dispatchCommandNotification ( 'AJAX_CALL',
-                        { 'destination' : hostsURL, 'callback' : onStartupCallsReturn }
+                        { 'data' : { 'username' : 'administrator', 'password' : 'administrator' }, 'destination' : hostsURL, 'callback' : onStartupCallsReturn }
                 );
             }
 

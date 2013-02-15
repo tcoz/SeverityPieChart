@@ -2,166 +2,168 @@
 
 <html>
 
-    <head>
-        <title>VMTurbo Entity Graph</title>
+<head>
+    <title>VMTurbo Entity Graph</title>
 
-        <link rel="stylesheet" href="css/main.css">
-        <link type="text/css" rel="Stylesheet" href="js/libs/blackbirdjs/blackbird.css" />
-        <script type="text/javascript" src="js/libs/blackbirdjs/blackbird.js"></script>
-        <script src="js/libs/jquery-1.8.3.min.js"></script>
-        <script type="text/javascript" src="js/libs/tcoz/jsbase/jsbase.js"></script>
-        <script type="text/javascript" src="js/libs/tcoz/jsbase/singletons_jsbase.js"></script>
-        <script type="text/javascript" src="js/libs/tcoz/jsbase/commands_jsbase.js"></script>
-        <script type="text/javascript" src="js/libs/tcoz/jsbase/utils_jsbase.js"></script>
-        <script type="text/javascript" src="http://code.highcharts.com/highcharts.js"></script>
-    </head>
+    <link rel="stylesheet" href="css/main.css">
+    <link type="text/css" rel="Stylesheet" href="js/libs/blackbirdjs/blackbird.css" />
+    <script type="text/javascript" src="js/libs/blackbirdjs/blackbird.js"></script>
+    <script src="js/libs/jquery-1.8.3.min.js"></script>
+    <script type="text/javascript" src="js/libs/tcoz/jsbase/jsbase.js"></script>
+    <script type="text/javascript" src="js/libs/tcoz/jsbase/singletons_jsbase.js"></script>
+    <script type="text/javascript" src="js/libs/tcoz/jsbase/commands_jsbase.js"></script>
+    <script type="text/javascript" src="js/libs/tcoz/jsbase/utils_jsbase.js"></script>
+    <script type="text/javascript" src="http://code.highcharts.com/highcharts.js"></script>
+</head>
 
-    <body>
+<body>
 
-        <script type="text/javascript">
+<script type="text/javascript">
 
-            // tcoz Framework namespace, only used by the utils and parser scripts in simple version.
-            // don't delete or change this or the tcoz and parser scripts won't work.
-            tcoz = { },
+    // tcoz Framework namespace, only used by the utils and parser scripts in simple version.
+    // don't delete or change this or the tcoz and parser scripts won't work.
+    tcoz = { },
             that = this;
 
-            // Alter these for your needs, watch the formatting, like trailing slashes and such.
-            var applianceAddress = 'http://localhost:8400/vmturbo/api/';
-            var notificationsURL = applianceAddress + 'notifications?category=MarketProblem';
-            var hostsURL = applianceAddress + 'markets/Market/hosts';
+    // Alter these for your needs, watch the formatting, like trailing slashes and such.
+    var applianceAddress = 'http://administrator:administrator@localhost:8400/vmturbo/api/';
+    var notificationsURL = applianceAddress + 'notifications?category=MarketProblem';
+    var hostsURL = applianceAddress + 'markets/Market/hosts';
 
-            // When the document loads, this will run.
-            jQuery ( document ).ready ( function ( ) {
-                startApp ( );
-            } );
+    // When the document loads, this will run.
+    jQuery ( document ).ready ( function ( ) {
+        startApp ( );
+    } );
 
-            var _ajaxCallCommand = ( tcoz.ajaxCallCommand = baseCommand ( ) );
-            function startApp ( ) {
+    var _ajaxCallCommand = ( tcoz.ajaxCallCommand = baseCommand ( ) );
+    function startApp ( ) {
 
-                _ajaxCallCommand.dispatchCommandNotification ( 'AJAX_CALL',
-                        { 'data' : { 'username' : 'administrator', 'password' : 'administrator' }, 'destination' : notificationsURL, 'callback' : onStartupCallsReturn }
-                );
-                _ajaxCallCommand.dispatchCommandNotification ( 'AJAX_CALL',
-                        { 'data' : { 'username' : 'administrator', 'password' : 'administrator' }, 'destination' : hostsURL, 'callback' : onStartupCallsReturn }
-                );
+        _ajaxCallCommand.dispatchCommandNotification ( 'AJAX_CALL',
+                { 'destination' : notificationsURL, 'callback' : onStartupCallsReturn }
+        );
+        _ajaxCallCommand.dispatchCommandNotification ( 'AJAX_CALL',
+                { 'destination' : hostsURL, 'callback' : onStartupCallsReturn }
+        );
+    }
+
+    var _notificationsList = [ ];
+    var _hostUUIDs = [ ];
+    var _startupCounter = 0;
+    function onStartupCallsReturn ( dataObj ) {
+
+        var i, xmlDoc, hosts, notifications;
+
+        try { xmlDoc = jQuery.parseXML ( dataObj.ajaxReturn ); }
+        catch ( err ) { xmlDoc = jQuery.parseXML ( '<root />' ); }
+
+        hosts = jQuery ( xmlDoc ).find ( 'ServiceEntity' );
+        notifications = jQuery ( xmlDoc ).find ( 'Notification' );
+
+        alert ( notifications.length );
+
+        if ( hosts.length > 0 ) {
+
+            for ( i = 0; i < hosts.length; i += 1 ) {
+                var hostElement = hosts [ i ];
+                var uuid = jQuery ( hostElement ).attr ( 'uuid' );
+                _hostUUIDs.push ( uuid );
+            }
+        }
+        else if ( notifications.length > 0 )  {
+            _notificationsList = notifications;
+        }
+
+        _startupCounter += 1;
+
+        if ( _startupCounter === 2 )
+            intersectData ( );
+    }
+
+    function intersectData ( ) {
+
+        var i, j, intersectedData = [ ];
+
+        for ( i = 0; i < _notificationsList.length; i += 1 ) {
+
+            var notificationHostUUID = jQuery ( _notificationsList [ i ] ).attr ( 'notificationObjectUuid' );
+            for ( j = 0; j < _hostUUIDs.length; j += 1 ) {
+
+                if ( _hostUUIDs [ j ] === notificationHostUUID ) {
+                    var severity = jQuery ( _notificationsList [ i ] ).attr ( 'severity' );
+                    intersectedData.push ( { 'host' : notificationHostUUID, 'severity' : severity } );
+                }
+            }
+        }
+
+        intersectedData.sortOn ( 'host' );
+        chartTheData ( intersectedData );
+    }
+
+    function chartTheData ( intersectedData ) {
+        var i, j,
+                severities = [ 'minor', 'major', 'critical' ],
+                severityCounts = [ 0, 0, 0 ],
+                totalNotNormalSeverities = 0,
+                normalSeverities = 0,
+                totalEntities = _hostUUIDs.length,
+                seriesData = [ { 'type': 'pie', 'name': 'Percent', 'data': [ ] } ];
+
+        if ( _notificationsList.length === 0 ) {
+            seriesData [ 0 ].data.push ( [ 'Normal',   100.0 ] );
+        }
+        else {
+
+            for ( i = 0; i < severities.length; i += 1 ) {
+
+                for ( j = 0; j < intersectedData.length; j += 1 ) {
+
+                    if ( severities [ i ].toLowerCase ( ) === intersectedData [ j ].severity.toLowerCase ( ) ) {
+                        severityCounts [ i ] = severityCounts [ i ] += 1;
+                    }
+                }
             }
 
-            var _notificationsList = [ ];
-            var _hostUUIDs = [ ];
-            var _startupCounter = 0;
-            function onStartupCallsReturn ( dataObj ) {
+            totalNotNormalSeverities = severityCounts [ 0 ] + severityCounts [ 1 ] + severityCounts [ 2 ];
+            normalSeverities = totalEntities - totalNotNormalSeverities;
+            seriesData [ 0 ].data.push ( [ 'Normal', ( normalSeverities / totalEntities ) ] );
 
-                var i, xmlDoc, hosts, notifications;
-
-                try { xmlDoc = jQuery.parseXML ( dataObj.ajaxReturn ); }
-                catch ( err ) { xmlDoc = jQuery.parseXML ( '<root />' ); }
-
-                hosts = jQuery ( xmlDoc ).find ( 'ServiceEntity' );
-                notifications = jQuery ( xmlDoc ).find ( 'Notification' );
-
-                if ( hosts.length > 0 ) {
-
-                    for ( i = 0; i < hosts.length; i += 1 ) {
-                        var hostElement = hosts [ i ];
-                        var uuid = jQuery ( hostElement ).attr ( 'uuid' );
-                        _hostUUIDs.push ( uuid );
-                    }
-                }
-                else if ( notifications.length > 0 )  {
-                    _notificationsList = notifications;
-                }
-
-                _startupCounter += 1;
-
-                if ( _startupCounter === 2 )
-                    intersectData ( );
+            if ( severityCounts [ 0 ] > 0 ) {
+                seriesData [ 0 ].data.push ( [ 'Minor', ( severityCounts [ 0 ] / totalEntities ) ] );
             }
-
-            function intersectData ( ) {
-
-                var i, j, intersectedData = [ ];
-
-                for ( i = 0; i < _notificationsList.length; i += 1 ) {
-
-                    var notificationHostUUID = jQuery ( _notificationsList [ i ] ).attr ( 'notificationObjectUuid' );
-                    for ( j = 0; j < _hostUUIDs.length; j += 1 ) {
-
-                        if ( _hostUUIDs [ j ] === notificationHostUUID ) {
-                            var severity = jQuery ( _notificationsList [ i ] ).attr ( 'severity' );
-                            intersectedData.push ( { 'host' : notificationHostUUID, 'severity' : severity } );
-                        }
-                    }
-                }
-
-                intersectedData.sortOn ( 'host' );
-                chartTheData ( intersectedData );
+            if ( severityCounts [ 1 ] > 0 ) {
+                seriesData [ 0 ].data.push ( [ 'Major', ( severityCounts [ 1 ] / totalEntities ) ] );
             }
-
-            function chartTheData ( intersectedData ) {
-                var i, j,
-                    severities = [ 'minor', 'major', 'critical' ],
-                    severityCounts = [ 0, 0, 0 ],
-                    totalNotNormalSeverities = 0,
-                    normalSeverities = 0,
-                    totalEntities = _hostUUIDs.length,
-                    seriesData = [ { 'type': 'pie', 'name': 'Percent', 'data': [ ] } ];
-
-                if ( _notificationsList.length === 0 ) {
-                    seriesData [ 0 ].data.push ( [ 'Normal',   100.0 ] );
-                }
-                else {
-
-                    for ( i = 0; i < severities.length; i += 1 ) {
-
-                        for ( j = 0; j < intersectedData.length; j += 1 ) {
-
-                            if ( severities [ i ].toLowerCase ( ) === intersectedData [ j ].severity.toLowerCase ( ) ) {
-                                severityCounts [ i ] = severityCounts [ i ] += 1;
-                            }
-                        }
-                    }
-
-                    totalNotNormalSeverities = severityCounts [ 0 ] + severityCounts [ 1 ] + severityCounts [ 2 ];
-                    normalSeverities = totalEntities - totalNotNormalSeverities;
-                    seriesData [ 0 ].data.push ( [ 'Normal', ( normalSeverities / totalEntities ) ] );
-
-                    if ( severityCounts [ 0 ] > 0 ) {
-                        seriesData [ 0 ].data.push ( [ 'Minor', ( severityCounts [ 0 ] / totalEntities ) ] );
-                    }
-                    if ( severityCounts [ 1 ] > 0 ) {
-                        seriesData [ 0 ].data.push ( [ 'Major', ( severityCounts [ 1 ] / totalEntities ) ] );
-                    }
-                    if ( severityCounts [ 2 ] > 0 ) {
-                        seriesData [ 0 ].data.push ( [ 'Critical', ( severityCounts [ 2 ] / totalEntities ) ] );
-                    }
-                }
-
-                var chart1 = new Highcharts.Chart ( {
-                    chart: {
-                        renderTo: 'chartContainer',
-                        plotBackgroundColor: null,
-                        plotBorderWidth: null,
-                        plotShadow: false
-                    },
-                    credits: {
-                        enabled: false
-                    },
-                    title: {
-                        text: 'Health'
-                    },
-                    tooltip: {
-                        pointFormat: '{series.name}: <b>{point.percentage}%</b>',
-                        percentageDecimals: 1
-                    },
-                    series: seriesData,
-                    colors: [ '#228B22', '#EEE9BF', '#FFA500', 'EE0000' ]
-                } );
+            if ( severityCounts [ 2 ] > 0 ) {
+                seriesData [ 0 ].data.push ( [ 'Critical', ( severityCounts [ 2 ] / totalEntities ) ] );
             }
+        }
 
-        </script>
+        var chart1 = new Highcharts.Chart ( {
+            chart: {
+                renderTo: 'chartContainer',
+                plotBackgroundColor: null,
+                plotBorderWidth: null,
+                plotShadow: false
+            },
+            credits: {
+                enabled: false
+            },
+            title: {
+                text: 'Health'
+            },
+            tooltip: {
+                pointFormat: '{series.name}: <b>{point.percentage}%</b>',
+                percentageDecimals: 1
+            },
+            series: seriesData,
+            colors: [ '#228B22', '#EEE9BF', '#FFA500', 'EE0000' ]
+        } );
+    }
 
-        <div id="chartContainer"></div>
+</script>
 
-    </body>
+<div id="chartContainer"></div>
+
+</body>
 
 </html>
